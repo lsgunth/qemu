@@ -66,7 +66,7 @@ static const char * const tcg_target_reg_names[TCG_TARGET_NB_REGS] = {
 
 static const int tcg_target_reg_alloc_order[] = {
     /* Call saved registers */
-    TCG_REG_S0,
+    /* TCG_REG_S0 reservered for TCG_AREG0 */
     TCG_REG_S1,
     TCG_REG_S2,
     TCG_REG_S3,
