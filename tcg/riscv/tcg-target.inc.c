@@ -80,23 +80,23 @@ static const int tcg_target_reg_alloc_order[] = {
     TCG_REG_S11,
 
     /* Call clobbered registers */
-    TCG_REG_T6,
-    TCG_REG_T5,
-    TCG_REG_T4,
-    TCG_REG_T3,
-    TCG_REG_T2,
-    TCG_REG_T1,
     TCG_REG_T0,
+    TCG_REG_T1,
+    TCG_REG_T2,
+    TCG_REG_T3,
+    TCG_REG_T4,
+    TCG_REG_T5,
+    TCG_REG_T6,
 
     /* Argument registers */
-    TCG_REG_A7,
-    TCG_REG_A6,
-    TCG_REG_A5,
-    TCG_REG_A4,
-    TCG_REG_A3,
-    TCG_REG_A2,
-    TCG_REG_A1,
     TCG_REG_A0,
+    TCG_REG_A1,
+    TCG_REG_A2,
+    TCG_REG_A3,
+    TCG_REG_A4,
+    TCG_REG_A5,
+    TCG_REG_A6,
+    TCG_REG_A7,
 };
 
 static const int tcg_target_call_iarg_regs[] = {
