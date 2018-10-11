@@ -658,6 +658,13 @@ static void tcg_out_setcond2(TCGContext *s, TCGCond cond, TCGReg ret,
     g_assert_not_reached();
 }
 
+static inline void tcg_out_goto(TCGContext *s, tcg_insn_unit *target)
+{
+    ptrdiff_t offset = tcg_pcrel_diff(s, target);
+    tcg_debug_assert(offset == sextract64(offset, 0, 26));
+    tcg_out_opc_jump(s, OPC_JAL, TCG_REG_ZERO, offset);
+}
+
 static void tcg_out_call_int(TCGContext *s, tcg_insn_unit *arg, bool tail)
 {
     TCGReg link = tail ? TCG_REG_ZERO : TCG_REG_RA;
@@ -829,7 +836,7 @@ static void tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
     TCGReg a0 = tcg_target_call_iarg_regs[0];
     TCGReg a1 = tcg_target_call_iarg_regs[1];
     TCGReg a2 = tcg_target_call_iarg_regs[2];
-    TCGReg ret = tcg_target_call_oarg_regs[0];
+    TCGReg a3 = tcg_target_call_iarg_regs[3];
 
     /* We don't support oversize guests */
     if (TCG_TARGET_REG_BITS < TARGET_LONG_BITS) {
@@ -842,9 +849,13 @@ static void tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
     /* call load helper */
     tcg_out_mov(s, TCG_TYPE_PTR, a0, TCG_AREG0);
     tcg_out_mov(s, TCG_TYPE_PTR, a1, l->addrlo_reg);
-    tcg_out_movi(s, TCG_TYPE_PTR, a2, (tcg_target_long)l->raddr);
-    tcg_out_call(s, qemu_ld_helpers[opc & (MO_BSWAP | MO_SSIZE)]);
-    tcg_out_movi(s, TCG_TYPE_PTR, l->datalo_reg, ret);
+    tcg_out_movi(s, TCG_TYPE_PTR, a2, oi);
+    tcg_out_movi(s, TCG_TYPE_PTR, a3, (tcg_target_long)l->raddr);
+
+    tcg_out_call(s, qemu_ld_helpers[opc & (MO_BSWAP | MO_SIZE)]);
+    tcg_out_mov(s, (opc & MO_SIZE) == MO_64, l->datalo_reg, a0);
+
+    tcg_out_goto(s, l->raddr);
 }
 
 static void tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
@@ -856,6 +867,7 @@ static void tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
     TCGReg a1 = tcg_target_call_iarg_regs[1];
     TCGReg a2 = tcg_target_call_iarg_regs[2];
     TCGReg a3 = tcg_target_call_iarg_regs[3];
+    TCGReg a4 = tcg_target_call_iarg_regs[4];
 
     /* We don't support oversize guests */
     if (TCG_TARGET_REG_BITS < TARGET_LONG_BITS) {
@@ -879,8 +891,12 @@ static void tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
     default:
         break;
     }
-    tcg_out_movi(s, TCG_TYPE_PTR, a3, (tcg_target_long)l->raddr);
-    tcg_out_tail(s, qemu_st_helpers[opc & (MO_BSWAP | MO_SSIZE)]);
+    tcg_out_movi(s, TCG_TYPE_PTR, a3, oi);
+    tcg_out_movi(s, TCG_TYPE_PTR, a4, (tcg_target_long)l->raddr);
+
+    tcg_out_call(s, qemu_st_helpers[opc & (MO_BSWAP | MO_SIZE)]);
+
+    tcg_out_goto(s, l->raddr);
 }
 #endif /* CONFIG_SOFTMMU */
 
