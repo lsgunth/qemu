@@ -1560,7 +1560,7 @@ static void tcg_target_qemu_prologue(TCGContext *s)
 
     /* Call generated code */
     tcg_out_mov(s, TCG_TYPE_PTR, TCG_AREG0, tcg_target_call_iarg_regs[0]);
-    tcg_out_opc_imm(s, OPC_JALR, 0, tcg_target_call_iarg_regs[1], 0);
+    tcg_out_opc_imm(s, OPC_JALR, TCG_REG_ZERO, tcg_target_call_iarg_regs[1], 0);
 
     /* Return path for goto_ptr. Set return value to 0 */
     s->code_gen_epilogue = s->code_ptr;
