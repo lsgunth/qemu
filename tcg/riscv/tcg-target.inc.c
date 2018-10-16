@@ -779,25 +779,21 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg base, TCGReg addrl,
         g_assert_not_reached();
     }
 
-    /* Put the TLB entry offset into TCG_REG_L0 (overwrite base) */
-    tcg_out_opc_imm(s, OPC_SRLI, TCG_REG_L0, addrl,
-                   TARGET_PAGE_BITS - CPU_TLB_ENTRY_BITS);
-    tcg_out_opc_imm(s, OPC_ANDI, TCG_REG_L0, TCG_REG_L0,
-                    (CPU_TLB_SIZE - 1) << CPU_TLB_ENTRY_BITS);
-    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_L0, TCG_REG_L0, TCG_AREG0);
-
     /* We don't support unaligned accesses. */
     if (a_bits < s_bits) {
         a_bits = s_bits;
     }
+    mask = (target_ulong)TARGET_PAGE_MASK | ((1 << a_bits) - 1);
+
+    /* Put the TLB entry offset into TCG_REG_L0 (overwrite base) */
+    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_L0, TCG_REG_ZERO, TCG_AREG0);
 
     /* Load the tlb comparator. Mask the page bits, keeping the
        alignment bits to compare against. */
-    mask = (target_ulong)TARGET_PAGE_MASK | ((1 << a_bits) - 1);
-    tcg_out_ldst(s, load_add_op, TCG_REG_L1, TCG_REG_L0, add_off);
-    tcg_out_ldst(s, load_cmp_op, TCG_REG_TMP0, TCG_REG_L0, cmp_off);
-    tcg_out_movi(s, TCG_TYPE_TL, TCG_REG_TMP1, mask);
-    tcg_out_opc_reg(s, OPC_AND, TCG_REG_TMP1, TCG_REG_TMP1, addrl);
+    tcg_out_ldst(s, load_add_op, TCG_REG_TMP0, TCG_REG_L0, add_off);
+    tcg_out_ldst(s, load_cmp_op, TCG_REG_TMP1, TCG_REG_L0, cmp_off);
+    tcg_out_movi(s, TCG_TYPE_TL, TCG_REG_L1, addrl);
+    tcg_out_opc_reg(s, OPC_AND, TCG_REG_L1, TCG_REG_L1, mask);
 
     /* Zero extend a 32-bit guest address for a 64-bit host. */
     if (TCG_TARGET_REG_BITS > TARGET_LONG_BITS) {
@@ -807,10 +803,10 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg base, TCGReg addrl,
 
     /* Compare masked address with the TLB entry. */
     label_ptr[0] = s->code_ptr;
-    tcg_out_opc_branch(s, OPC_BNE, TCG_REG_TMP1, TCG_REG_TMP0, 0);
+    tcg_out_opc_branch(s, OPC_BNE, TCG_REG_L1, TCG_REG_TMP1, 0);
 
     /* TLB Hit - translate address using addend. */
-    tcg_out_opc_reg(s, OPC_ADD, base, TCG_REG_L1, addrl);
+    tcg_out_opc_reg(s, OPC_ADD, base, TCG_REG_TMP0, addrl);
 }
 
 static void add_qemu_ldst_label(TCGContext *s, int is_ld, TCGMemOpIdx oi,
