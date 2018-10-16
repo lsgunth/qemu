@@ -137,6 +137,9 @@ static const char *target_parse_constraint(TCGArgConstraint *ct,
         /* tcg_out_tlb_load uses TCG_REG_TMP0/TMP1 and TCG_REG_L0/L1 */
         tcg_regset_reset_reg(ct->u.regs, TCG_REG_L0);
         tcg_regset_reset_reg(ct->u.regs, TCG_REG_L1);
+
+        tcg_regset_reset_reg(ct->u.regs, tcg_target_call_iarg_regs[0]);
+        tcg_regset_reset_reg(ct->u.regs, tcg_target_call_iarg_regs[1]);
 #endif
         break;
     case 'I':
