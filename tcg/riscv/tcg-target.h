@@ -74,6 +74,7 @@ typedef enum {
     TCG_GUEST_BASE_REG = TCG_REG_S1,
     TCG_REG_TMP0       = TCG_REG_T6,
     TCG_REG_TMP1       = TCG_REG_T5,
+    TCG_REG_TMP2       = TCG_REG_T4,
     TCG_REG_L0         = TCG_REG_A6,
     TCG_REG_L1         = TCG_REG_A7,
 } TCGReg;

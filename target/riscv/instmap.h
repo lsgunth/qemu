@@ -185,12 +185,14 @@ enum {
 
 #define MASK_OP_FP_LOAD(op)   (MASK_OP_MAJOR(op) | (op & (0x7 << 12)))
 enum {
+    OPC_RISC_FLH   = OPC_RISC_FP_LOAD | (0x1 << 12),
     OPC_RISC_FLW   = OPC_RISC_FP_LOAD | (0x2 << 12),
     OPC_RISC_FLD   = OPC_RISC_FP_LOAD | (0x3 << 12),
 };
 
 #define MASK_OP_FP_STORE(op)   (MASK_OP_MAJOR(op) | (op & (0x7 << 12)))
 enum {
+    OPC_RISC_FSH   = OPC_RISC_FP_STORE | (0x1 << 12),
     OPC_RISC_FSW   = OPC_RISC_FP_STORE | (0x2 << 12),
     OPC_RISC_FSD   = OPC_RISC_FP_STORE | (0x3 << 12),
 };
