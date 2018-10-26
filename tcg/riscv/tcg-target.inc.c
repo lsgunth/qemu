@@ -772,7 +772,7 @@ static void * const qemu_st_helpers[16] = {
     [MO_BEQ]  = helper_be_stq_mmu,
 };
 
-static void tcg_out_tlb_load(TCGContext *s, TCGReg base, TCGReg addrl,
+static void tcg_out_tlb_load(TCGContext *s, TCGReg addrl,
                              TCGReg addrh, TCGMemOpIdx oi,
                              tcg_insn_unit **label_ptr, bool is_load)
 {
@@ -792,6 +792,8 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg base, TCGReg addrl,
     RISCVInsn load_cmp_op = (TARGET_LONG_BITS == 64 ? OPC_LD :
                              TCG_TARGET_REG_BITS == 64 ? OPC_LWU : OPC_LW);
     RISCVInsn load_add_op = TCG_TARGET_REG_BITS == 64 ? OPC_LD : OPC_LW;
+    TCGReg base = TCG_AREG0;
+    TCGReg cmpr;
 
     /* We don't support oversize guests */
     if (TCG_TARGET_REG_BITS < TARGET_LONG_BITS) {
@@ -804,29 +806,66 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg base, TCGReg addrl,
     }
     mask = (target_ulong)TARGET_PAGE_MASK | ((1 << a_bits) - 1);
 
-    /* Put the TLB entry offset into TCG_REG_L0 (overwrite base) */
-    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_L0, TCG_REG_ZERO, TCG_AREG0);
 
-    /* Load the tlb comparator. Mask the page bits, keeping the
-       alignment bits to compare against. */
-    tcg_out_ldst(s, load_add_op, TCG_REG_TMP0, TCG_REG_L0, add_off);
-    tcg_out_ldst(s, load_cmp_op, TCG_REG_TMP1, TCG_REG_L0, cmp_off);
-    tcg_out_movi(s, TCG_TYPE_TL, TCG_REG_L1, addrl);
-    tcg_out_opc_reg(s, OPC_AND, TCG_REG_L1, TCG_REG_L1, mask);
+    /* Compensate for very large offsets.  */
+    if (add_off >= 0x1000) {
+        int adj;
+        base = TCG_REG_TMP2;
+        if (cmp_off <= 2 * 0xfff) {
+            adj = 0xfff;
+            tcg_out_opc_imm(s, OPC_ADDI, base, TCG_AREG0, adj);
+        } else {
+            adj = cmp_off - sextract32(cmp_off, 0, 12);
+            tcg_debug_assert(add_off - adj >= -0x1000
+                             && add_off - adj < 0x1000);
 
-    /* Zero extend a 32-bit guest address for a 64-bit host. */
-    // if (TCG_TARGET_REG_BITS > TARGET_LONG_BITS) {
-    //     tcg_out_ext32u(s, base, addrl);
-    //     addrl = base;
-    // }
+            tcg_out_opc_upper(s, OPC_LUI, base, adj);
+            tcg_out_opc_reg(s, OPC_ADD, base, base, TCG_AREG0);
+        }
+        add_off -= adj;
+        cmp_off -= adj;
+    }
+
+    /* Extract the page index.  */
+    if (CPU_TLB_BITS + CPU_TLB_ENTRY_BITS < 12) {
+        tcg_out_opc_imm(s, OPC_SRLI, TCG_REG_TMP0, addrl,
+                        TARGET_PAGE_BITS - CPU_TLB_ENTRY_BITS);
+        tcg_out_opc_imm(s, OPC_ANDI, TCG_REG_TMP0, TCG_REG_TMP0,
+                        MAKE_64BIT_MASK(CPU_TLB_ENTRY_BITS, CPU_TLB_BITS));
+    } else {
+        tcg_out_opc_imm(s, OPC_SRLI, TCG_REG_TMP0, addrl, TARGET_PAGE_BITS);
+        tcg_out_opc_imm(s, OPC_ANDI, TCG_REG_TMP0, TCG_REG_TMP0,
+                        MAKE_64BIT_MASK(0, CPU_TLB_BITS));
+        tcg_out_opc_imm(s, OPC_SLLI, TCG_REG_TMP0, TCG_REG_TMP0,
+                        CPU_TLB_ENTRY_BITS);
+    }
+
+    /* Add that to the base address to index the tlb.  */
+    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_TMP2, base, TCG_REG_TMP0);
+    base = TCG_REG_TMP2;
+
+    /* Load the tlb comparator and the addend.  */
+    tcg_out_ldst(s, load_cmp_op, TCG_REG_TMP0, base, cmp_off);
+    tcg_out_ldst(s, load_cmp_op, TCG_REG_TMP2, base, add_off);
+
+    /* Clear the non-page, non-alignment bits from the address.  */
+    if (mask == sextract64(mask, 0, 12)) {
+        tcg_out_opc_imm(s, OPC_ANDI, TCG_REG_TMP1, addrl, mask);
+    } else {
+        tcg_out_movi(s, TCG_TYPE_REG, TCG_REG_TMP1, mask);
+        tcg_out_opc_reg(s, OPC_AND, TCG_REG_TMP1, TCG_REG_TMP1, addrl);
+     }
 
     /* Compare masked address with the TLB entry. */
     label_ptr[0] = s->code_ptr;
-    tcg_out_opc_branch(s, OPC_BNE, TCG_REG_L1, TCG_REG_TMP1, 0);
+    tcg_out_opc_branch(s, OPC_BNE, TCG_REG_TMP0, TCG_REG_TMP1, 0);
 
-    /* TLB Hit - translate address using addend. */
-    tcg_out_opc_reg(s, OPC_ADD, base, TCG_REG_TMP0, addrl);
-    tcg_out_opc_reg(s, OPC_ADD, base, TCG_REG_TMP0, addrh);
+    /* TLB Hit - translate address using addend.  */
+    if (TCG_TARGET_REG_BITS > TARGET_LONG_BITS) {
+        tcg_out_ext32u(s, TCG_REG_TMP0, addrl);
+        addrl = TCG_REG_TMP0;
+    }
+    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_TMP0, TCG_REG_TMP2, addrl);
 }
 
 static void add_qemu_ldst_label(TCGContext *s, int is_ld, TCGMemOpIdx oi,
@@ -966,10 +1005,8 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is_64)
     TCGMemOp opc;
 #if defined(CONFIG_SOFTMMU)
     tcg_insn_unit *label_ptr[1];
-    TCGReg base = TCG_REG_L0;
-#else
-    TCGReg base = TCG_REG_TMP0;
 #endif
+    TCGReg base = TCG_REG_TMP0;
 
     data_regl = *args++;
     data_regh = (TCG_TARGET_REG_BITS == 32 && is_64 ? *args++ : 0);
@@ -979,7 +1016,7 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is_64)
     opc = get_memop(oi);
 
 #if defined(CONFIG_SOFTMMU)
-    tcg_out_tlb_load(s, base, addr_regl, addr_regh, oi, label_ptr, 1);
+    tcg_out_tlb_load(s, addr_regl, addr_regh, oi, label_ptr, 1);
     tcg_out_qemu_ld_direct(s, data_regl, data_regh, base, opc, is_64);
     add_qemu_ldst_label(s, 1, oi,
                         (is_64 ? TCG_TYPE_I64 : TCG_TYPE_I32),
@@ -1042,7 +1079,7 @@ static void tcg_out_qemu_st(TCGContext *s, const TCGArg *args, bool is_64)
     opc = get_memop(oi);
 
 #if defined(CONFIG_SOFTMMU)
-    tcg_out_tlb_load(s, base, addr_regl, addr_regh, oi, label_ptr, 0);
+    tcg_out_tlb_load(s, addr_regl, addr_regh, oi, label_ptr, 0);
     tcg_out_qemu_st_direct(s, data_regl, data_regh, base, opc);
     add_qemu_ldst_label(s, 0, oi,
                         (is_64 ? TCG_TYPE_I64 : TCG_TYPE_I32),
