@@ -954,14 +954,18 @@ static void tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
 
     tcg_out_call(s, qemu_st_helpers[opc & (MO_BSWAP | MO_SSIZE)]);
 
-    tcg_out_goto_long(s, l->raddr);
+    tcg_out_goto(s, l->raddr);
 }
 #endif /* CONFIG_SOFTMMU */
 
 static void tcg_out_qemu_ld_direct(TCGContext *s, TCGReg lo, TCGReg hi,
                                    TCGReg base, TCGMemOp opc, bool is_64)
 {
-    switch (opc & (MO_SSIZE | MO_BSWAP)) {
+    const TCGMemOp bswap = opc & MO_BSWAP;
+
+    /* TODO: Handle byte swapping */
+
+    switch (opc & (MO_SSIZE)) {
     case MO_UB:
         tcg_out_opc_imm(s, OPC_LBU, lo, base, 0);
         break;
@@ -1035,7 +1039,11 @@ static void tcg_out_qemu_ld(TCGContext *s, const TCGArg *args, bool is_64)
 static void tcg_out_qemu_st_direct(TCGContext *s, TCGReg lo, TCGReg hi,
                                    TCGReg base, TCGMemOp opc)
 {
-    switch (opc & (MO_SIZE | MO_BSWAP)) {
+    const TCGMemOp bswap = opc & MO_BSWAP;
+
+    /* TODO: Handle byte swapping */
+
+    switch (opc & (MO_SSIZE)) {
     case MO_8:
         tcg_out_opc_store(s, OPC_SB, base, lo, 0);
         break;
