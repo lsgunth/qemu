@@ -666,14 +666,6 @@ static void gen_fp_load(DisasContext *ctx, uint32_t opc, int rd,
     tcg_gen_addi_tl(t0, t0, imm);
 
     switch (opc) {
-    // case OPC_RISC_FLH:
-    //     if (!has_ext(ctx, RVF)) {
-    //         fprintf(stderr, "%s - %d\n", __func__, __LINE__);
-    //         goto do_illegal;
-    //     }
-    //     tcg_gen_qemu_ld_i64(cpu_fpr[rd], t0, ctx->mem_idx, MO_TEUW);
-    //     /* RISC-V requires NaN-boxing of narrower width floating point values */
-    //     tcg_gen_ori_i64(cpu_fpr[rd], cpu_fpr[rd], 0xffffffffffff0000ULL);
     case OPC_RISC_FLW:
         tcg_gen_qemu_ld_i64(cpu_fpr[rd], t0, ctx->mem_idx, MO_TEUL);
         /* RISC-V requires NaN-boxing of narrower width floating point values */
