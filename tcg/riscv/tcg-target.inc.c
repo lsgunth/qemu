@@ -820,7 +820,7 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg addrl,
                              && add_off - adj < 0x1000);
 
             tcg_out_opc_upper(s, OPC_LUI, base, adj);
-            tcg_out_opc_reg(s, OPC_ADD, base, base, TCG_AREG0);
+            tcg_out_opc_reg(s, OPC_ADD, base, TCG_REG_ZERO, TCG_AREG0);
         }
         add_off -= adj;
         cmp_off -= adj;
@@ -865,7 +865,7 @@ static void tcg_out_tlb_load(TCGContext *s, TCGReg addrl,
         tcg_out_ext32u(s, TCG_REG_TMP0, addrl);
         addrl = TCG_REG_TMP0;
     }
-    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_TMP0, TCG_REG_TMP2, addrl);
+    tcg_out_opc_reg(s, OPC_ADD, TCG_REG_L0, TCG_REG_TMP2, addrl);
 }
 
 static void add_qemu_ldst_label(TCGContext *s, int is_ld, TCGMemOpIdx oi,
@@ -913,7 +913,7 @@ static void tcg_out_qemu_ld_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
     tcg_out_call(s, qemu_ld_helpers[opc & (MO_BSWAP | MO_SSIZE)]);
     tcg_out_mov(s, (opc & MO_SIZE) == MO_64, l->datalo_reg, a0);
 
-    tcg_out_goto_long(s, l->raddr);
+    tcg_out_goto(s, l->raddr);
 }
 
 static void tcg_out_qemu_st_slow_path(TCGContext *s, TCGLabelQemuLdst *l)
