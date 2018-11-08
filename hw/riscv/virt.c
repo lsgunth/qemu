@@ -104,22 +104,24 @@ static hwaddr load_initrd(const char *filename, uint64_t mem_size,
     return *start + size;
 }
 
-#define INTERREUPT_MAP_WIDTH 7
+#define INTERREUPT_MAP_WIDTH 10
 
 static void create_pcie_irq_map(void *fdt, char *nodename,
                                 uint32_t plic_phandle)
 {
-    int pin;
-    uint32_t full_irq_map[GPEX_NUM_IRQS * INTERREUPT_MAP_WIDTH] = { 0 };
+    int devfn, pin;
+    uint32_t full_irq_map[GPEX_NUM_IRQS * GPEX_NUM_IRQS * INTERREUPT_MAP_WIDTH] = { 0 };
     uint32_t *irq_map = full_irq_map;
 
+    for (devfn = 0; devfn <= 0x18; devfn += 0x8) {
         for (pin = 0; pin < GPEX_NUM_IRQS; pin++) {
             int irq_nr = PCIE_IRQ + (pin % PCI_NUM_PINS);
             int i;
 
             uint32_t map[INTERREUPT_MAP_WIDTH] = {
                 0, 0, 0,
-                pin + 1, plic_phandle, 0, irq_nr};
+                pin + 1, plic_phandle,
+                0, 0, 1, irq_nr, 4};
 
             /* Convert map to big endian */
             for (i = 0; i < INTERREUPT_MAP_WIDTH; i++) {
@@ -127,12 +129,13 @@ static void create_pcie_irq_map(void *fdt, char *nodename,
             }
             irq_map += INTERREUPT_MAP_WIDTH;
         }
+    }
 
     qemu_fdt_setprop(fdt, nodename, "interrupt-map",
                      full_irq_map, sizeof(full_irq_map));
 
     qemu_fdt_setprop_cells(fdt, nodename, "interrupt-map-mask",
-                           0, 0, 0, 0x7);
+                           cpu_to_be32(0x18), 0, 0, cpu_to_be32(0x7));
 }
 
 static void *create_fdt(RISCVVirtState *s, const struct MemmapEntry *memmap,
