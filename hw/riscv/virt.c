@@ -35,6 +35,7 @@
 #include "hw/riscv/sifive_clint.h"
 #include "hw/riscv/sifive_test.h"
 #include "hw/riscv/virt.h"
+#include "hw/arm/fdt.h"
 #include "chardev/char.h"
 #include "net/net.h"
 #include "sysemu/arch_init.h"
@@ -104,38 +105,53 @@ static hwaddr load_initrd(const char *filename, uint64_t mem_size,
     return *start + size;
 }
 
-#define INTERREUPT_MAP_WIDTH 10
+#define FDT_PCI_ADDR_CELLS    3
+#define FDT_PCI_INT_CELLS     1
+#define FDT_PLIC_ADDR_CELLS   0
+#define FDT_PLIC_INT_CELLS    1
+#define FDT_INT_MAP_WIDTH     (FDT_PCI_ADDR_CELLS + FDT_PCI_INT_CELLS + 1 + \
+			       FDT_PLIC_ADDR_CELLS + FDT_PLIC_INT_CELLS)
+
 
 static void create_pcie_irq_map(void *fdt, char *nodename,
                                 uint32_t plic_phandle)
 {
-    int devfn, pin;
-    uint32_t full_irq_map[GPEX_NUM_IRQS * GPEX_NUM_IRQS * INTERREUPT_MAP_WIDTH] = { 0 };
+    int pin, dev;
+    uint32_t full_irq_map[GPEX_NUM_IRQS * GPEX_NUM_IRQS * FDT_INT_MAP_WIDTH] = {};
     uint32_t *irq_map = full_irq_map;
 
-    // for (devfn = 0; devfn <= 0x18; devfn += 0x8) {
-        for (pin = 2; pin < GPEX_NUM_IRQS; pin++) {
-            int irq_nr = PCIE_IRQ + (pin % PCI_NUM_PINS);
-            int i;
+    /* This code creates a standard swizzle of interrupts such that
+     * each device's first interrupt is based on it's PCI_SLOT number.
+     * (See pci_swizzle_map_irq_fn())
+     *
+     * We only need one entry per interrupt in the table (not one per
+     * possible slot) seeing the interrupt-map-mask will allow the table
+     * to wrap to any number of devices.
+     */
+    for (dev = 0; dev < GPEX_NUM_IRQS; dev++) {
+	int devfn = dev * 0x8;
 
-            uint32_t map[INTERREUPT_MAP_WIDTH] = {
-                pin + 1, pin + 1, pin + 1, pin + 1,
-                plic_phandle, irq_nr,
-                pin + 1, pin + 1, pin + 1, pin + 1};
+        for (pin = 0; pin < GPEX_NUM_IRQS; pin++) {
+            int irq_nr = PCIE_IRQ + ((pin + PCI_SLOT(devfn)) % GPEX_NUM_IRQS);
+            int i = 0;
 
-            /* Convert map to big endian */
-            for (i = 0; i < INTERREUPT_MAP_WIDTH; i++) {
-                irq_map[i] = cpu_to_be32(map[i]);
-            }
-            irq_map += INTERREUPT_MAP_WIDTH;
+	    irq_map[i] = cpu_to_be32(devfn << 8);
+            i += FDT_PCI_ADDR_CELLS;
+	    irq_map[i] = cpu_to_be32(pin + 1);
+	    i += FDT_PCI_INT_CELLS;
+	    irq_map[i++] = cpu_to_be32(plic_phandle);
+	    i += FDT_PLIC_ADDR_CELLS;
+	    irq_map[i] = cpu_to_be32(irq_nr);
+
+            irq_map += FDT_INT_MAP_WIDTH;
         }
-    // }
+    }
 
     qemu_fdt_setprop(fdt, nodename, "interrupt-map",
                      full_irq_map, sizeof(full_irq_map));
 
     qemu_fdt_setprop_cells(fdt, nodename, "interrupt-map-mask",
-                           cpu_to_be32(0), 0, 0, cpu_to_be32(0x7));
+                           0x1800, 0, 0, 0x7);
 }
 
 static void *create_fdt(RISCVVirtState *s, const struct MemmapEntry *memmap,
@@ -243,7 +259,8 @@ static void *create_fdt(RISCVVirtState *s, const struct MemmapEntry *memmap,
     nodename = g_strdup_printf("/soc/interrupt-controller@%lx",
         (long)memmap[VIRT_PLIC].base);
     qemu_fdt_add_subnode(fdt, nodename);
-    qemu_fdt_setprop_cell(fdt, nodename, "#interrupt-cells", 1);
+    qemu_fdt_setprop_cells(fdt, nodename, "#address-cells", FDT_PLIC_ADDR_CELLS);
+    qemu_fdt_setprop_cell(fdt, nodename, "#interrupt-cells", FDT_PLIC_INT_CELLS);
     qemu_fdt_setprop_string(fdt, nodename, "compatible", "riscv,plic0");
     qemu_fdt_setprop(fdt, nodename, "interrupt-controller", NULL, 0);
     qemu_fdt_setprop(fdt, nodename, "interrupts-extended",
@@ -276,8 +293,8 @@ static void *create_fdt(RISCVVirtState *s, const struct MemmapEntry *memmap,
     nodename = g_strdup_printf("/soc/pci@%lx",
         (long) memmap[VIRT_PCIE_ECAM].base);
     qemu_fdt_add_subnode(fdt, nodename);
-    qemu_fdt_setprop_cells(fdt, nodename, "#address-cells", 0x3);
-    qemu_fdt_setprop_cells(fdt, nodename, "#interrupt-cells", 0x1);
+    qemu_fdt_setprop_cells(fdt, nodename, "#address-cells", FDT_PCI_ADDR_CELLS);
+    qemu_fdt_setprop_cells(fdt, nodename, "#interrupt-cells", FDT_PCI_INT_CELLS);
     qemu_fdt_setprop_cells(fdt, nodename, "#size-cells", 0x2);
     qemu_fdt_setprop_string(fdt, nodename, "compatible",
                             "pci-host-ecam-generic");
